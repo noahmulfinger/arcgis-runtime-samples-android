@@ -71,7 +71,7 @@ public class MainActivity extends AppCompatActivity {
         ArcGISTiledElevationSource elevationSource = new ArcGISTiledElevationSource(
             getString(R.string.world_terrain_service_url));
         scene.getBaseSurface().getElevationSources().add(elevationSource);
-        scene.getBaseSurface().setNavigationConstraint(NavigationConstraint.NONE);
+        scene.getBaseSurface().setNavigationConstraint(NavigationConstraint.STAY_ABOVE);
 
         // add the scene to the scene view
         mArView.getSceneView().setScene(scene);
