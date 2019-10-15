@@ -19,6 +19,7 @@ package com.esri.arcgisruntime.sample.exploresceneinflyoverar;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
@@ -27,15 +28,13 @@ import android.util.Log;
 import android.widget.Toast;
 
 import com.esri.arcgisruntime.geometry.Envelope;
-import com.esri.arcgisruntime.layers.IntegratedMeshLayer;
+import com.esri.arcgisruntime.layers.Layer;
 import com.esri.arcgisruntime.loadable.LoadStatus;
 import com.esri.arcgisruntime.mapping.ArcGISScene;
 import com.esri.arcgisruntime.mapping.ArcGISTiledElevationSource;
-import com.esri.arcgisruntime.mapping.Basemap;
+import com.esri.arcgisruntime.mapping.MobileScenePackage;
 import com.esri.arcgisruntime.mapping.NavigationConstraint;
 import com.esri.arcgisruntime.mapping.view.Camera;
-import com.esri.arcgisruntime.portal.Portal;
-import com.esri.arcgisruntime.portal.PortalItem;
 import com.esri.arcgisruntime.toolkit.ar.ArcGISArView;
 
 public class MainActivity extends AppCompatActivity {
@@ -49,7 +48,7 @@ public class MainActivity extends AppCompatActivity {
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_main);
 
-    requestCameraPermission();
+    requestPermissions();
   }
 
   private void displaySceneInAr() {
@@ -58,50 +57,61 @@ public class MainActivity extends AppCompatActivity {
     // disable touch interactions with the scene view
     mArView.getSceneView().setOnTouchListener((view, motionEvent) -> true);
 
-    // create scene with imagery basemap
-    ArcGISScene scene = new ArcGISScene(Basemap.createImagery());
+    // load the mobile scene package with a path to the .mspk file
+    MobileScenePackage sanDiegoScenePackage = new MobileScenePackage(
+        Environment.getExternalStorageDirectory() + "/ArcGIS/Samples/ScenePackage/sandiego-pc.mspk");
+    sanDiegoScenePackage.loadAsync();
+    sanDiegoScenePackage.addDoneLoadingListener(() -> {
+      if (sanDiegoScenePackage.getLoadStatus() == LoadStatus.LOADED) {
 
-    // create an integrated mesh layer
-    Portal portal = new Portal(getString(R.string.arcgis_portal_url));
-    PortalItem portalItem = new PortalItem(portal, getString(R.string.vricon_integrated_mesh_layer_url));
-    IntegratedMeshLayer integratedMeshLayer = new IntegratedMeshLayer(portalItem);
-    scene.getOperationalLayers().add(integratedMeshLayer);
+        // get the first scene
+        ArcGISScene scene = sanDiegoScenePackage.getScenes().get(0);
 
-    // create an elevation source and add it to the scene
-    ArcGISTiledElevationSource elevationSource = new ArcGISTiledElevationSource(
-        getString(R.string.world_terrain_service_url));
-    scene.getBaseSurface().getElevationSources().add(elevationSource);
-    scene.getBaseSurface().setNavigationConstraint(NavigationConstraint.NONE);
+        // create an elevation source and add it to the scene
+        ArcGISTiledElevationSource elevationSource = new ArcGISTiledElevationSource(
+            getString(R.string.world_terrain_service_url));
+        scene.getBaseSurface().getElevationSources().add(elevationSource);
+        scene.getBaseSurface().setNavigationConstraint(NavigationConstraint.NONE);
 
-    // add the scene to the scene view
-    mArView.getSceneView().setScene(scene);
+        // add the scene to the scene view
+        mArView.getSceneView().setScene(scene);
 
-    // wait for the layer to load, then set the AR camera
-    integratedMeshLayer.addDoneLoadingListener(() -> {
-      if (integratedMeshLayer.getLoadStatus() == LoadStatus.LOADED) {
-        Envelope envelope = integratedMeshLayer.getFullExtent();
-        Camera camera = new Camera(envelope.getCenter().getY(), envelope.getCenter().getX(), 250, 0, 90, 0);
-        mArView.setOriginCamera(camera);
+        // get the first layer and load it
+        Layer sanDiegoLayer = scene.getOperationalLayers().get(0);
+        sanDiegoLayer.loadAsync();
+        sanDiegoLayer.addDoneLoadingListener(() -> {
+          if (sanDiegoLayer.getLoadStatus() == LoadStatus.LOADED) {
+            // get the extent of the layer
+            Envelope envelope = sanDiegoLayer.getFullExtent();
+            // use its center to set the origin camera
+            Camera camera = new Camera(envelope.getCenter().getY(), envelope.getCenter().getX(), 250, 0, 90, 0);
+            mArView.setOriginCamera(camera);
+          } else {
+            String error = "Error loading layer: " + sanDiegoLayer.getLoadError().getMessage();
+            Toast.makeText(this, error, Toast.LENGTH_LONG).show();
+            Log.e(TAG, error);
+          }
+        });
+
+        // set the translation factor to enable rapid movement through the scene
+        mArView.setTranslationFactor(1000);
       } else {
-        String error =
-            getString(R.string.error_loading_integrated_mesh_layer) + integratedMeshLayer.getLoadError().getMessage();
+        String error = "Error loading mobile map package: " + sanDiegoScenePackage.getLoadError().getMessage();
         Toast.makeText(this, error, Toast.LENGTH_LONG).show();
         Log.e(TAG, error);
       }
     });
-
-    // set the translation factor to enable rapid movement through the scene
-    mArView.setTranslationFactor(1000);
   }
 
   /**
    * Request read external storage for API level 23+.
    */
-  private void requestCameraPermission() {
+  private void requestPermissions() {
     // define permission to request
-    String[] reqPermission = { Manifest.permission.CAMERA };
+    String[] reqPermission = { Manifest.permission.CAMERA, Manifest.permission.READ_EXTERNAL_STORAGE };
     int requestCode = 2;
-    if (ContextCompat.checkSelfPermission(this, reqPermission[0]) == PackageManager.PERMISSION_GRANTED) {
+    if (ContextCompat.checkSelfPermission(this, reqPermission[0]) == PackageManager.PERMISSION_GRANTED
+        && ContextCompat.checkSelfPermission(this, reqPermission[1]) == PackageManager.PERMISSION_GRANTED) {
       displaySceneInAr();
     } else {
       // request permission
@@ -118,7 +128,7 @@ public class MainActivity extends AppCompatActivity {
       displaySceneInAr();
     } else {
       // report to user that permission was denied
-      Toast.makeText(this, getString(R.string.camera_permission_required_for_ar), Toast.LENGTH_SHORT).show();
+      Toast.makeText(this, getString(R.string.permission_required_for_ar), Toast.LENGTH_SHORT).show();
     }
     super.onRequestPermissionsResult(requestCode, permissions, grantResults);
   }
